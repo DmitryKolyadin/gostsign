@@ -284,6 +284,62 @@ body {
   color: var(--ink-soft);
 }
 
+/* --- выбор TSA --- */
+.tsa-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.tsa-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.tsa-option--on {
+  border-color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--seal);
+}
+
+.tsa-option input {
+  grid-row: span 2;
+  accent-color: var(--seal);
+  margin-top: 3px;
+}
+
+.tsa-option__name {
+  font-weight: 700;
+}
+
+.tsa-option__note {
+  font-size: 12px;
+}
+
+.badge {
+  font-weight: 600;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+}
+
+.badge--ok {
+  background: var(--ok);
+  color: #fff;
+}
+
+.badge--warn {
+  background: var(--warn);
+  color: #fff;
+}
+
 /* --- список подписей --- */
 .siglist {
   list-style: none;

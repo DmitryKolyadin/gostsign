@@ -29,8 +29,7 @@ import {
 } from './lib/pdfSign';
 import { PdfPreview } from './components/PdfPreview';
 import { DebugPanel } from './components/DebugPanel';
-
-const DEFAULT_TSA = 'http://testca2012.cryptopro.ru/tsp/tsp.srf';
+import { TSA_PROVIDERS, recommendTsaProvider } from './lib/tsaProviders';
 
 type Phase = 'idle' | 'prepare' | 'sign' | 'embed' | 'done';
 
@@ -54,7 +53,8 @@ export default function App() {
   const [pluginError, setPluginError] = useState<CadesError | null>(null);
 
   const [useTsa, setUseTsa] = useState(false);
-  const [tsaUrl, setTsaUrl] = useState(DEFAULT_TSA);
+  const [tsaProviderId, setTsaProviderId] = useState<string>(TSA_PROVIDERS[0].id);
+  const [customTsaUrl, setCustomTsaUrl] = useState('');
   const [reason, setReason] = useState('');
 
   const [phase, setPhase] = useState<Phase>('idle');
@@ -85,6 +85,19 @@ export default function App() {
   }, [refreshCerts]);
 
   const cert = certIndex != null ? certs[certIndex] : null;
+
+  const recommendedProvider = useMemo(
+    () => (cert ? recommendTsaProvider(cert.issuerName) : null),
+    [cert],
+  );
+
+  useEffect(() => {
+    if (recommendedProvider) setTsaProviderId(recommendedProvider.id);
+  }, [recommendedProvider]);
+
+  const selectedProvider =
+    TSA_PROVIDERS.find((p) => p.id === tsaProviderId) ?? TSA_PROVIDERS[0];
+  const tsaUrl = tsaProviderId === 'custom' ? customTsaUrl : selectedProvider.url;
 
   const stampData = useMemo(
     () =>
@@ -336,12 +349,56 @@ export default function App() {
                   <span>Штамп времени, CAdES-T</span>
                 </label>
                 {useTsa && (
-                  <input
-                    className="input"
-                    value={tsaUrl}
-                    onChange={(e) => setTsaUrl(e.target.value)}
-                    placeholder="Адрес службы TSA"
-                  />
+                  <div className="tsa-picker">
+                    {TSA_PROVIDERS.map((p) => (
+                      <label
+                        key={p.id}
+                        className={'tsa-option' + (tsaProviderId === p.id ? ' tsa-option--on' : '')}
+                      >
+                        <input
+                          type="radio"
+                          name="tsaProvider"
+                          checked={tsaProviderId === p.id}
+                          onChange={() => setTsaProviderId(p.id)}
+                        />
+                        <span className="tsa-option__name">
+                          {p.name}
+                          {recommendedProvider?.id === p.id && (
+                            <span className="badge badge--ok"> рекомендовано</span>
+                          )}
+                          {!p.legallyValid && (
+                            <span className="badge badge--warn"> юридически ничтожен</span>
+                          )}
+                        </span>
+                        {p.note && <span className="muted tsa-option__note">{p.note}</span>}
+                      </label>
+                    ))}
+                    <label
+                      className={'tsa-option' + (tsaProviderId === 'custom' ? ' tsa-option--on' : '')}
+                    >
+                      <input
+                        type="radio"
+                        name="tsaProvider"
+                        checked={tsaProviderId === 'custom'}
+                        onChange={() => setTsaProviderId('custom')}
+                      />
+                      <span className="tsa-option__name">Свой адрес TSA</span>
+                    </label>
+                    {tsaProviderId === 'custom' && (
+                      <input
+                        className="input"
+                        value={customTsaUrl}
+                        onChange={(e) => setCustomTsaUrl(e.target.value)}
+                        placeholder="Адрес службы TSA"
+                      />
+                    )}
+                    {!selectedProvider.legallyValid && tsaProviderId !== 'custom' && (
+                      <div className="notice notice--warn">
+                        Этот TSA выдаёт тестовые штампы без юридической силы — используйте только для
+                        проверки работы CAdES-T, не для реальных документов.
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <input
