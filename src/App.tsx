@@ -12,8 +12,6 @@ import {
   type CertificateInfo,
 } from './lib/cades';
 import {
-  DEFAULT_STAMP_HEIGHT,
-  DEFAULT_STAMP_WIDTH,
   MIN_STAMP_HEIGHT,
   MIN_STAMP_WIDTH,
   embedSignature,
@@ -23,11 +21,12 @@ import {
   preparePdf,
   readExistingSignatures,
   rectsOverlap,
-  stampLines as buildStampLines,
   type ExistingSignature,
   type StampPlacement,
 } from './lib/pdfSign';
 import { PdfPreview } from './components/PdfPreview';
+import { StampConfigurator } from './components/StampConfigurator';
+import { loadStyle, resolveLines, saveStyle, stampDefaultSize } from './lib/stampStyle';
 import { DebugPanel } from './components/DebugPanel';
 import { TSA_PROVIDERS, recommendTsaProvider } from './lib/tsaProviders';
 
@@ -45,6 +44,9 @@ export default function App() {
   const [pageIndex, setPageIndex] = useState(0);
   const [placement, setPlacement] = useState<StampPlacement | null>(null);
   const [withStamp, setWithStamp] = useState(true);
+  const [stampStyle, setStampStyle] = useState(loadStyle);
+
+  useEffect(() => saveStyle(stampStyle), [stampStyle]);
 
   const [certs, setCerts] = useState<CertificateInfo[]>([]);
   const [handles, setHandles] = useState<unknown[]>([]);
@@ -112,14 +114,10 @@ export default function App() {
     [cert],
   );
 
-  const stampLines = stampData
-    ? buildStampLines(stampData)
-    : [
-        'Документ подписан электронной подписью',
-        'Сертификат: —',
-        'Владелец: —',
-        'Действителен с —',
-      ];
+  const stampLines = useMemo(
+    () => resolveLines(stampStyle, stampData, new Date()),
+    [stampStyle, stampData],
+  );
 
   /* --- загрузка документа --- */
   const openFile = async (file: File) => {
@@ -150,14 +148,11 @@ export default function App() {
     const page = doc.pageSizes[pageIndex];
     if (!page) return;
     const taken = occupiedRects(doc.signatures, pageIndex);
-    const spot = findFreeSpot(taken, page.width, page.height, DEFAULT_STAMP_WIDTH, DEFAULT_STAMP_HEIGHT);
-    setPlacement({
-      pageIndex,
-      x: spot.x,
-      y: spot.y,
-      width: DEFAULT_STAMP_WIDTH,
-      height: DEFAULT_STAMP_HEIGHT,
-    });
+    const [width, height] = stampDefaultSize(stampStyle);
+    const spot = findFreeSpot(taken, page.width, page.height, width, height);
+    setPlacement({ pageIndex, x: spot.x, y: spot.y, width, height });
+    // размер берём из пресета только при авторасстановке, правки стиля рамку не двигают
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, pageIndex, withStamp]);
 
   const taken = doc ? occupiedRects(doc.signatures, pageIndex) : [];
@@ -191,6 +186,7 @@ export default function App() {
       setPhase('prepare');
       const prepared = await preparePdf(doc.bytes, {
         stamp: stampData!,
+        style: stampStyle,
         placement: withStamp ? placement : null,
         useTsa,
         signerName: stampData!.ownerName,
@@ -335,6 +331,10 @@ export default function App() {
                   Обновить список
                 </button>
               </div>
+
+              {withStamp && (
+                <StampConfigurator style={stampStyle} onChange={setStampStyle} stampData={stampData} />
+              )}
 
               <div className="panel">
                 <h2 className="panel__title">Параметры</h2>
@@ -497,6 +497,7 @@ export default function App() {
               placement={withStamp ? placement : null}
               onPlacementChange={setPlacement}
               stampLines={stampLines}
+              stampStyle={stampStyle}
               occupied={taken}
               overlapWarning={overlap}
             />

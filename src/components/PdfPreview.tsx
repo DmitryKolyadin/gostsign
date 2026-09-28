@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { StampPlacement } from '../lib/pdfSign';
+import { StampSvg } from './StampSvg';
+import type { StampLine, StampStyle } from '../lib/stampStyle';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -11,7 +13,8 @@ interface Props {
   onPagesLoaded: (sizes: { width: number; height: number }[]) => void;
   placement: StampPlacement | null;
   onPlacementChange: (p: StampPlacement) => void;
-  stampLines: string[];
+  stampLines: StampLine[];
+  stampStyle: StampStyle;
   occupied: [number, number, number, number][];
   overlapWarning: boolean;
 }
@@ -25,6 +28,7 @@ export function PdfPreview({
   placement,
   onPlacementChange,
   stampLines,
+  stampStyle,
   occupied,
   overlapWarning,
 }: Props) {
@@ -145,13 +149,12 @@ export function PdfPreview({
             ])}
             onPointerDown={start('move')}
           >
-            <div className="stampbox__inner">
-              {stampLines.map((l, i) => (
-                <div key={i} className={i === 0 ? 'stampbox__title' : 'stampbox__line'}>
-                  {l}
-                </div>
-              ))}
-            </div>
+            <StampSvg
+              style={stampStyle}
+              lines={stampLines}
+              width={placement.width}
+              height={placement.height}
+            />
             <div className="stampbox__handle" onPointerDown={start('resize')} />
           </div>
         )}

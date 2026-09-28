@@ -7,6 +7,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { embedSignature, preparePdf, readExistingSignatures } from '../src/lib/pdfSign';
 import { findSignatures } from '../src/lib/pdfInspect';
+import { PRESETS, type StampStyle } from '../src/lib/stampStyle';
 
 // pdf-lib/fontkit в браузере грузит шрифты через fetch — подменяем на чтение с диска
 const realFetch = globalThis.fetch;
@@ -53,9 +54,21 @@ function fakeCms(len: number): Uint8Array {
   return out;
 }
 
-async function signOnce(bytes: Uint8Array, pageIndex: number, y: number) {
+// 2×2 PNG с прозрачностью — проверяем, что картинка и её SMask попадают в инкремент
+const LOGO =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGM4ISf3nwEG5ORO/AcAIk8EB/ywj4AAAAAASUVORK5CYII=';
+const withLogo: StampStyle = {
+  ...PRESETS.gost.style,
+  preset: 'custom',
+  layout: 'image-left',
+  image: { dataUrl: LOGO, width: 2, height: 2, ratio: 0.25 },
+  fields: PRESETS.gost.style.fields.map((f) => (f.id === 'signedAt' ? { ...f, enabled: true } : f)),
+};
+
+async function signOnce(bytes: Uint8Array, pageIndex: number, y: number, style?: StampStyle) {
   const prepared = await preparePdf(bytes, {
     stamp,
+    style,
     placement: { pageIndex, x: 60, y, width: 190, height: 66 },
     useTsa: false,
     signerName: stamp.ownerName,
@@ -83,8 +96,8 @@ async function run(label: string, useObjectStreams: boolean) {
   const original = await makeSample(useObjectStreams);
 
   const first = await signOnce(original, 0, 60);
-  const second = await signOnce(first.signed, 0, 160);
-  const third = await signOnce(second.signed, 1, 60);
+  const second = await signOnce(first.signed, 0, 160, withLogo);
+  const third = await signOnce(second.signed, 1, 60, PRESETS.compact.style);
   const final = third.signed;
 
   const slots = findSignatures(final);

@@ -19,16 +19,22 @@ import {
 } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { CADESCOM } from './cades';
+import { loadStampFontBuffers } from './stampFonts';
+import {
+  DEFAULT_STYLE,
+  formatDate,
+  layoutStamp,
+  resolveLines,
+  type StampData,
+  type StampLine,
+  type StampStyle,
+} from './stampStyle';
+
+export { formatDate, type StampData };
 
 export const PLACEHOLDER_BES = 32 * 1024;
 export const PLACEHOLDER_T = 64 * 1024;
 
-export interface StampData {
-  serialNumber: string;
-  ownerName: string;
-  validFrom: Date;
-  validTo: Date;
-}
 
 export interface StampPlacement {
   pageIndex: number;
@@ -41,6 +47,8 @@ export interface StampPlacement {
 
 export interface PrepareOptions {
   stamp: StampData;
+  /** Внешний вид штампа; по умолчанию — классический. */
+  style?: StampStyle;
   placement: StampPlacement | null;
   useTsa: boolean;
   signerName: string;
@@ -114,10 +122,6 @@ function two(n: number) {
   return String(n).padStart(2, '0');
 }
 
-export function formatDate(d: Date): string {
-  return `${two(d.getDate())}.${two(d.getMonth() + 1)}.${d.getFullYear()}`;
-}
-
 /** /M — дата подписания в формате PDF. */
 function pdfDate(d: Date): string {
   const off = -d.getTimezoneOffset();
@@ -136,86 +140,77 @@ function pdfDate(d: Date): string {
 
 export const MIN_STAMP_WIDTH = 120;
 export const MIN_STAMP_HEIGHT = 44;
-export const MIN_FONT_SIZE = 5;
 export const DEFAULT_STAMP_WIDTH = 190;
 export const DEFAULT_STAMP_HEIGHT = 66;
 
-export function stampLines(data: StampData): string[] {
-  return [
-    'Документ подписан электронной подписью',
-    `Сертификат: ${data.serialNumber}`,
-    `Владелец: ${data.ownerName}`,
-    `Действителен с ${formatDate(data.validFrom)} по ${formatDate(data.validTo)}`,
-  ];
+function pdfColor(hex: string, op: 'rg' | 'RG'): string {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [n >> 16, (n >> 8) & 0xff, n & 0xff].map((v) => (v / 255).toFixed(3));
+  return `${c.join(' ')} ${op}`;
 }
 
-/** Подбирает кегль так, чтобы все реквизиты влезли и не наезжали друг на друга. */
-export function fitStampFontSize(
-  lines: string[],
-  width: number,
-  height: number,
-  measure: (text: string, size: number) => number,
-): number {
-  const padX = 6;
-  const padY = 5;
-  for (let size = 9; size >= MIN_FONT_SIZE; size -= 0.25) {
-    const lineHeight = size * 1.35;
-    if (padY * 2 + lineHeight * lines.length > height) continue;
-    const maxWidth = Math.max(...lines.map((l) => measure(l, size)));
-    if (maxWidth > width - padX * 2) continue;
-    return size;
-  }
-  return 0;
+/** Прямоугольник со скруглёнными углами (кривые Безье). */
+function rectPath(x: number, y: number, w: number, h: number, r: number): string {
+  const f = (v: number) => v.toFixed(2);
+  r = Math.min(r, w / 2, h / 2);
+  if (r <= 0) return `${f(x)} ${f(y)} ${f(w)} ${f(h)} re`;
+  const k = r * 0.5523;
+  const x2 = x + w;
+  const y2 = y + h;
+  return [
+    `${f(x + r)} ${f(y)} m`,
+    `${f(x2 - r)} ${f(y)} l`,
+    `${f(x2 - r + k)} ${f(y)} ${f(x2)} ${f(y + r - k)} ${f(x2)} ${f(y + r)} c`,
+    `${f(x2)} ${f(y2 - r)} l`,
+    `${f(x2)} ${f(y2 - r + k)} ${f(x2 - r + k)} ${f(y2)} ${f(x2 - r)} ${f(y2)} c`,
+    `${f(x + r)} ${f(y2)} l`,
+    `${f(x + r - k)} ${f(y2)} ${f(x)} ${f(y2 - r + k)} ${f(x)} ${f(y2 - r)} c`,
+    `${f(x)} ${f(y + r)} l`,
+    `${f(x)} ${f(y + r - k)} ${f(x + r - k)} ${f(y)} ${f(x + r)} ${f(y)} c`,
+    'h',
+  ].join('\n');
 }
 
 function buildStampContent(
-  lines: string[],
+  style: StampStyle,
+  lines: StampLine[],
   regular: PDFFont,
   bold: PDFFont,
   width: number,
   height: number,
 ): string {
-  const size = fitStampFontSize(lines, width, height, (t, s) => regular.widthOfTextAtSize(t, s));
-  if (!size) {
+  const layout = layoutStamp(style, lines, width, height, (t, s, b) =>
+    (b ? bold : regular).widthOfTextAtSize(t, s),
+  );
+  if (!layout) {
     throw new PdfSignError(
       'Штамп слишком мал: реквизиты не помещаются читаемым кеглем',
-      `Увеличьте прямоугольник штампа (минимум ${MIN_STAMP_WIDTH}×${MIN_STAMP_HEIGHT} пт).`,
+      `Увеличьте прямоугольник штампа (минимум ${MIN_STAMP_WIDTH}×${MIN_STAMP_HEIGHT} пт), уберите часть строк или уменьшите картинку.`,
     );
   }
-  const padX = 6;
-  const lineHeight = size * 1.35;
-  const blockHeight = lineHeight * lines.length;
-  let y = (height + blockHeight) / 2 - lineHeight + size * 0.25;
 
-  const ops: string[] = [];
-  ops.push('q');
-  // подложка и рамка
-  ops.push('1 1 1 rg');
-  ops.push(`0.4 0.4 ${(width - 0.8).toFixed(2)} ${(height - 0.8).toFixed(2)} re f`);
-  ops.push('0.13 0.20 0.33 RG');
-  ops.push('0.8 w');
-  ops.push(`0.4 0.4 ${(width - 0.8).toFixed(2)} ${(height - 0.8).toFixed(2)} re S`);
-  ops.push('0.13 0.20 0.33 rg');
-  ops.push(`1.6 1.6 2 ${(height - 3.2).toFixed(2)} re f`);
-
-  ops.push('BT');
-  lines.forEach((line, i) => {
-    const font = i === 0 ? bold : regular;
-    const alias = i === 0 ? '/FB' : '/FR';
-    ops.push(`${alias} ${size.toFixed(2)} Tf`);
-    ops.push(i === 0 ? '0.13 0.20 0.33 rg' : '0.10 0.10 0.10 rg');
-    ops.push(`1 0 0 1 ${(padX + 3).toFixed(2)} ${y.toFixed(2)} Tm`);
-    ops.push(`${font.encodeText(line).toString()} Tj`);
-    y -= lineHeight;
-  });
-  ops.push('ET');
+  const ops: string[] = ['q'];
+  for (const op of layout.ops) {
+    if (op.t === 'rect') {
+      if (op.fill) ops.push(pdfColor(op.fill, 'rg'));
+      if (op.stroke) ops.push(pdfColor(op.stroke, 'RG'), `${(op.lw ?? 1).toFixed(2)} w`);
+      ops.push(rectPath(op.x, op.y, op.w, op.h, op.r));
+      ops.push(op.fill && op.stroke ? 'B' : op.fill ? 'f' : 'S');
+    } else if (op.t === 'image') {
+      ops.push('q', `${op.w.toFixed(2)} 0 0 ${op.h.toFixed(2)} ${op.x.toFixed(2)} ${op.y.toFixed(2)} cm`, '/Im1 Do', 'Q');
+    } else {
+      const font = op.bold ? bold : regular;
+      ops.push('BT');
+      ops.push(`${op.bold ? '/FB' : '/FR'} ${op.size.toFixed(2)} Tf`);
+      ops.push(pdfColor(op.color, 'rg'));
+      ops.push(`1 0 0 1 ${op.x.toFixed(2)} ${op.y.toFixed(2)} Tm`);
+      ops.push(`${font.encodeText(op.text).toString()} Tj`);
+      ops.push('ET');
+    }
+  }
   ops.push('Q');
   return ops.join('\n');
 }
-
-/* ------------------------------------------------------------------ */
-/* Разбор существующих подписей                                        */
-/* ------------------------------------------------------------------ */
 
 export interface ExistingSignature {
   fieldName: string;
@@ -345,11 +340,7 @@ function serializeObject(e: Emitted): Uint8Array {
 
 async function loadStampFonts(doc: PDFDocument): Promise<{ regular: PDFFont; bold: PDFFont }> {
   doc.registerFontkit(fontkit);
-  const base = import.meta.env.BASE_URL;
-  const [r, b] = await Promise.all([
-    fetch(`${base}fonts/PTSans-Regular.ttf`).then((x) => x.arrayBuffer()),
-    fetch(`${base}fonts/PTSans-Bold.ttf`).then((x) => x.arrayBuffer()),
-  ]);
+  const { regular: r, bold: b } = await loadStampFontBuffers();
   const regular = await doc.embedFont(r, { subset: true });
   const bold = await doc.embedFont(b, { subset: true });
   return { regular, bold };
@@ -418,6 +409,7 @@ export async function preparePdf(
   }
 
   /* ---- Шрифты и штамп ---- */
+  const signedAt = new Date();
   const pages = doc.getPages();
   const placement = opts.placement;
   let apRef: PDFRef | null = null;
@@ -435,18 +427,24 @@ export async function preparePdf(
       placement.y + placement.height,
     ];
 
+    const style = opts.style ?? DEFAULT_STYLE;
     const { regular, bold } = await loadStampFonts(doc);
     const content = buildStampContent(
-      stampLines(opts.stamp),
+      style,
+      resolveLines(style, opts.stamp, signedAt),
       regular,
       bold,
       placement.width,
       placement.height,
     );
 
-    const resources = ctx.obj({
-      Font: ctx.obj({ FR: regular.ref, FB: bold.ref }),
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: Record<string, any> = { Font: ctx.obj({ FR: regular.ref, FB: bold.ref }) };
+    if (style.image && style.layout !== 'text') {
+      const img = await doc.embedPng(style.image.dataUrl);
+      res.XObject = ctx.obj({ Im1: img.ref });
+    }
+    const resources = ctx.obj(res);
     const ap = ctx.stream(content, {
       Type: 'XObject',
       Subtype: 'Form',
@@ -466,7 +464,7 @@ export async function preparePdf(
       '/Filter /Adobe.PPKLite\n' +
       '/SubFilter /adbe.pkcs7.detached\n' +
       '/ByteRange [0 0000000000 0000000000 0000000000]\n' +
-      `/M (${pdfDate(new Date())})\n` +
+      `/M (${pdfDate(signedAt)})\n` +
       `/Name ${pdfTextString(opts.signerName)}\n` +
       (opts.reason ? `/Reason ${pdfTextString(opts.reason)}\n` : '') +
       (opts.location ? `/Location ${pdfTextString(opts.location)}\n` : '') +
