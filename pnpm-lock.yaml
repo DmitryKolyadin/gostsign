@@ -7,13 +7,16 @@ settings:
 importers:
 
   .:
+    devDependencies:
+      oxlint:
+        specifier: ^1.75.0
+        version: 1.78.0
+
+  apps/web:
     dependencies:
-      '@pdf-lib/fontkit':
-        specifier: ^1.1.1
-        version: 1.1.1
-      pdf-lib:
-        specifier: ^1.17.1
-        version: 1.17.1
+      '@gostsign/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       pdfjs-dist:
         specifier: ^6.2.108
         version: 6.2.108
@@ -36,15 +39,28 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6.0.4
         version: 6.0.5(vite@8.2.1(@types/node@24.13.3))
-      oxlint:
-        specifier: ^1.75.0
-        version: 1.78.0
       typescript:
         specifier: ~6.0.2
         version: 6.0.3
       vite:
         specifier: ^8.2.0
         version: 8.2.1(@types/node@24.13.3)
+
+  packages/core:
+    dependencies:
+      '@pdf-lib/fontkit':
+        specifier: ^1.1.1
+        version: 1.1.1
+      pdf-lib:
+        specifier: ^1.17.1
+        version: 1.17.1
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.3
+        version: 24.13.3
+      typescript:
+        specifier: ~6.0.2
+        version: 6.0.3
       vite-node:
         specifier: ^6.0.0
         version: 6.0.0(@types/node@24.13.3)

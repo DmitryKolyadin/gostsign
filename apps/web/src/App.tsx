@@ -1,34 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PDFDocument } from 'pdf-lib';
 import {
   CadesError,
-  describe,
-  fromBase64,
-  hashAlgByPublicKeyOid,
-  listCertificates,
-  loadPlugin,
-  pluginDiagnostics,
-  signBytes,
-  type CertificateInfo,
-} from './lib/cades';
-import {
   MIN_STAMP_HEIGHT,
   MIN_STAMP_WIDTH,
-  embedSignature,
-  findFreeSpot,
+  TSA_PROVIDERS,
+  defaultPlacement,
+  describe,
   formatDate,
+  inspectPdf,
+  listCertificates,
+  loadPlugin,
   occupiedRects,
-  preparePdf,
-  readExistingSignatures,
+  pluginDiagnostics,
+  recommendTsaProvider,
   rectsOverlap,
+  resolveLines,
+  signPdf,
+  stampDataFromCertificate,
+  type CertificateInfo,
   type ExistingSignature,
   type StampPlacement,
-} from './lib/pdfSign';
+} from '@gostsign/core';
 import { PdfPreview } from './components/PdfPreview';
 import { StampConfigurator } from './components/StampConfigurator';
-import { loadStyle, resolveLines, saveStyle, stampDefaultSize } from './lib/stampStyle';
 import { DebugPanel } from './components/DebugPanel';
-import { TSA_PROVIDERS, recommendTsaProvider } from './lib/tsaProviders';
+import { loadStyle, saveStyle } from './stampStorage';
 
 type Phase = 'idle' | 'prepare' | 'sign' | 'embed' | 'done';
 
@@ -101,18 +97,7 @@ export default function App() {
     TSA_PROVIDERS.find((p) => p.id === tsaProviderId) ?? TSA_PROVIDERS[0];
   const tsaUrl = tsaProviderId === 'custom' ? customTsaUrl : selectedProvider.url;
 
-  const stampData = useMemo(
-    () =>
-      cert
-        ? {
-            serialNumber: cert.serialNumber,
-            ownerName: cert.cn || `${cert.surname} ${cert.givenName}`.trim(),
-            validFrom: cert.validFrom,
-            validTo: cert.validTo,
-          }
-        : null,
-    [cert],
-  );
+  const stampData = useMemo(() => (cert ? stampDataFromCertificate(cert) : null), [cert]);
 
   const stampLines = useMemo(
     () => resolveLines(stampStyle, stampData, new Date()),
@@ -125,32 +110,21 @@ export default function App() {
     setResult(null);
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const parsed = await PDFDocument.load(bytes, { updateMetadata: false });
-      const pageSizes = parsed.getPages().map((p) => ({ width: p.getWidth(), height: p.getHeight() }));
-      const signatures = readExistingSignatures(parsed);
-      setDoc({ name: file.name, bytes, pageSizes, signatures });
+      const info = await inspectPdf(bytes);
+      setDoc({ name: file.name, bytes, ...info });
       setPageIndex(0);
       setPlacement(null);
     } catch (e) {
-      const msg = describe(e);
-      setError({
-        message: /encrypt/i.test(msg)
-          ? 'PDF защищён паролем — подписание невозможно'
-          : 'Не удалось открыть PDF: файл повреждён или это не PDF',
-        hint: msg,
-      });
+      const err = e as CadesError;
+      setError({ message: err.message ?? describe(e), hint: err.hint });
     }
   };
 
   /* --- автопозиция штампа --- */
   useEffect(() => {
     if (!doc || !withStamp) return;
-    const page = doc.pageSizes[pageIndex];
-    if (!page) return;
-    const taken = occupiedRects(doc.signatures, pageIndex);
-    const [width, height] = stampDefaultSize(stampStyle);
-    const spot = findFreeSpot(taken, page.width, page.height, width, height);
-    setPlacement({ pageIndex, x: spot.x, y: spot.y, width, height });
+    const spot = defaultPlacement(doc, pageIndex, stampStyle);
+    if (spot) setPlacement(spot);
     // размер берём из пресета только при авторасстановке, правки стиля рамку не двигают
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, pageIndex, withStamp]);
@@ -170,12 +144,6 @@ export default function App() {
     setError(null);
     setResult(null);
     try {
-      if (!cert.hasPrivateKey) {
-        throw new CadesError(
-          'У выбранного сертификата нет закрытого ключа',
-          'Подключите носитель с ключом или выберите другой сертификат.',
-        );
-      }
       if (withStamp && overlap) {
         throw new CadesError(
           'Штамп перекрывает уже существующую подпись',
@@ -183,37 +151,22 @@ export default function App() {
         );
       }
 
-      setPhase('prepare');
-      const prepared = await preparePdf(doc.bytes, {
-        stamp: stampData!,
+      const { bytes: signed } = await signPdf(doc.bytes, {
+        certificate: cert,
+        certHandle: handles[certIndex],
         style: stampStyle,
         placement: withStamp ? placement : null,
-        useTsa,
-        signerName: stampData!.ownerName,
+        tsa: useTsa ? { url: tsaUrl } : null,
         reason: reason.trim() || undefined,
+        onPhase: setPhase,
       });
-
-      setPhase('sign');
-      const cmsBase64 = await signBytes(handles[certIndex], prepared.dataToSign, {
-        hashAlg: hashAlgByPublicKeyOid(cert.publicKeyOid),
-        useTsa,
-        tsaUrl,
-      });
-
-      setPhase('embed');
-      const signed = embedSignature(prepared, fromBase64(cmsBase64));
 
       setResult({ bytes: signed, name: doc.name.replace(/\.pdf$/i, '') + '_signed.pdf' });
       setPhase('done');
 
       // продолжаем работу с подписанной версией — для мультиподписи
-      const parsed = await PDFDocument.load(signed, { updateMetadata: false });
-      setDoc({
-        name: doc.name,
-        bytes: signed,
-        pageSizes: doc.pageSizes,
-        signatures: readExistingSignatures(parsed),
-      });
+      const info = await inspectPdf(signed);
+      setDoc({ name: doc.name, bytes: signed, pageSizes: doc.pageSizes, signatures: info.signatures });
     } catch (e) {
       const err = e as CadesError;
       setError({ message: err.message ?? describe(e), hint: err.hint });

@@ -5,20 +5,29 @@
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { embedSignature, preparePdf, readExistingSignatures } from '../src/lib/pdfSign';
-import { findSignatures } from '../src/lib/pdfInspect';
-import { PRESETS, type StampStyle } from '../src/lib/stampStyle';
+import {
+  PRESETS,
+  configure,
+  embedSignature,
+  findSignatures,
+  preparePdf,
+  readExistingSignatures,
+  subjectIds,
+  parseDN,
+  type StampStyle,
+} from '../src/index';
 
-// pdf-lib/fontkit в браузере грузит шрифты через fetch — подменяем на чтение с диска
-const realFetch = globalThis.fetch;
-globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-  const url = String(input);
-  if (url.startsWith('/fonts/') || url.startsWith('fonts/')) {
-    const buf = await readFile(new URL(`../public/${url.replace(/^\//, '')}`, import.meta.url));
-    return new Response(buf);
-  }
-  return realFetch(input, init);
-}) as typeof fetch;
+// в браузере шрифты штампа грузятся через fetch — в Node читаем их с диска
+const font = (name: string) =>
+  readFile(new URL(`../assets/fonts/${name}`, import.meta.url)).then((b) =>
+    b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength),
+  );
+configure({
+  loadFonts: async () => ({
+    regular: await font('PTSans-Regular.ttf'),
+    bold: await font('PTSans-Bold.ttf'),
+  }),
+});
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -137,6 +146,35 @@ async function run(label: string, useObjectStreams: boolean) {
   console.log(`  файл: ${out.pathname}`);
 }
 
+function checkSubjectIds() {
+  console.log('\n# реквизиты владельца из SubjectName');
+  const person = subjectIds(
+    parseDN('CN=Иванов Иван, SN=Иванов, G=Иван, SNILS=123-456-789 01, INN=770123456789, C=RU'),
+  );
+  check('ИНН физлица', person.personInn === '770123456789' && person.orgInn === '', JSON.stringify(person));
+  check('СНИЛС без разделителей', person.snils === '12345678901');
+
+  const org = subjectIds(
+    parseDN(
+      'CN=Петров, O="ООО ""Ромашка""", OID.1.2.643.100.4=7701234567, ИНН=770198765432, ОГРН=1027700000000',
+    ),
+  );
+  check(
+    'ИНН юрлица по OID и ИНН сотрудника',
+    org.orgInn === '7701234567' && org.personInn === '770198765432',
+    JSON.stringify(org),
+  );
+  check('ОГРН', org.ogrn === '1027700000000');
+
+  const legacy = subjectIds(parseDN('CN=ООО Ромашка, INN=007701234567, OGRN=1027700000000'));
+  check(
+    'старый формат «00» + ИНН юрлица',
+    legacy.orgInn === '7701234567' && legacy.personInn === '',
+    JSON.stringify(legacy),
+  );
+}
+
+checkSubjectIds();
 await run('xref-таблица', false);
 await run('xref-поток (object streams)', true);
 

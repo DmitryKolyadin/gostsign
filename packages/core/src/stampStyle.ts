@@ -334,10 +334,9 @@ function fitInto(slot: Box, aspect: number): Box {
 }
 
 /* ------------------------------------------------------------------ */
-/* Хранение, импорт и экспорт                                          */
+/* Импорт и экспорт (хранение — забота приложения)                     */
 /* ------------------------------------------------------------------ */
 
-const STORAGE_KEY = 'gostsign.stampStyle';
 const HEX = /^#[0-9a-f]{6}$/i;
 
 /** Проверяет и нормализует произвольный JSON; бросает Error с понятным текстом. */
@@ -386,22 +385,4 @@ export function parseStyle(raw: unknown): StampStyle {
         : null,
     maxFontSize: num(s.maxFontSize, 9, MIN_FONT_SIZE, 14),
   };
-}
-
-export function loadStyle(): StampStyle {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return parseStyle(JSON.parse(raw));
-  } catch {
-    /* повреждённый профиль — молча откатываемся на классику */
-  }
-  return DEFAULT_STYLE;
-}
-
-export function saveStyle(style: StampStyle): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(style));
-  } catch {
-    /* приватный режим или переполнение — не критично */
-  }
 }

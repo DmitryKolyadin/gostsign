@@ -7,7 +7,7 @@ import {
   type PresetId,
   type StampData,
   type StampStyle,
-} from '../lib/stampStyle';
+} from '@gostsign/core';
 import { StampSvg } from './StampSvg';
 
 interface Props {

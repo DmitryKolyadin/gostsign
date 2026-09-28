@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { layoutStamp, type Measure, type StampLine, type StampStyle } from '../lib/stampStyle';
-import { STAMP_FONT_FAMILY, loadPreviewMeasure } from '../lib/stampFonts';
+import { layoutStamp, type Measure, type StampLine, type StampStyle } from '@gostsign/core';
+import { STAMP_FONT_FAMILY, loadPreviewMeasure } from '@gostsign/core';
 
 interface Props {
   style: StampStyle;
