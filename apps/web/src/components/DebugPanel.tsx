@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { checkDigest, findSignatures, type DigestCheck, type SignatureSlot } from '../lib/pdfInspect';
-import { oidName } from '../lib/asn1';
-import { describe } from '../lib/cades';
+import { checkDigest, findSignatures, type DigestCheck, type SignatureSlot } from '@gostsign/core';
+import { oidName } from '@gostsign/core';
+import { describe } from '@gostsign/core';
 
 interface Props {
   pdfBytes: Uint8Array | null;

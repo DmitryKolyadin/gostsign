@@ -4,6 +4,7 @@
  */
 import fontkit from '@pdf-lib/fontkit';
 import type { Measure } from './stampStyle';
+import { assetUrl, getConfig } from './config';
 
 export const STAMP_FONT_FAMILY = 'GostSignStamp';
 
@@ -11,14 +12,22 @@ let buffers: Promise<{ regular: ArrayBuffer; bold: ArrayBuffer }> | null = null;
 
 export function loadStampFontBuffers() {
   if (!buffers) {
-    const base = import.meta.env.BASE_URL;
-    buffers = Promise.all([
-      fetch(`${base}fonts/PTSans-Regular.ttf`).then((x) => x.arrayBuffer()),
-      fetch(`${base}fonts/PTSans-Bold.ttf`).then((x) => x.arrayBuffer()),
-    ]).then(([regular, bold]) => ({ regular, bold }));
+    const custom = getConfig().loadFonts;
+    buffers = custom
+      ? custom()
+      : Promise.all([fetchFont('fonts/PTSans-Regular.ttf'), fetchFont('fonts/PTSans-Bold.ttf')]).then(
+          ([regular, bold]) => ({ regular, bold }),
+        );
     buffers.catch(() => (buffers = null));
   }
   return buffers;
+}
+
+async function fetchFont(path: string): Promise<ArrayBuffer> {
+  const url = assetUrl(path);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Шрифт штампа недоступен: ${url} (HTTP ${res.status})`);
+  return res.arrayBuffer();
 }
 
 let measure: Promise<Measure> | null = null;

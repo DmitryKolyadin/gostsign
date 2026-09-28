@@ -1,0 +1,3 @@
+# копируются из @gostsign/core скриптом copy-core-assets
+public/fonts/
+public/vendor/

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import type { StampPlacement } from '../lib/pdfSign';
+import type { StampPlacement } from '@gostsign/core';
 import { StampSvg } from './StampSvg';
-import type { StampLine, StampStyle } from '../lib/stampStyle';
+import type { StampLine, StampStyle } from '@gostsign/core';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
