@@ -93,3 +93,18 @@ pnpm check
 ## Лицензия
 
 [Apache License 2.0](LICENSE).
+
+## Ядро в других репозиториях
+
+Ветка `core` — история `packages/core` с ядром в корне; её обновляет workflow
+`core-branch.yml` при каждом изменении ядра в `main`. Потребитель подключает ядро исходниками:
+
+```bash
+git subtree add  --prefix=packages/gostsign-core https://github.com/DmitryKolyadin/gostsign core
+git subtree pull --prefix=packages/gostsign-core https://github.com/DmitryKolyadin/gostsign core
+```
+
+Правки ядра, сделанные у потребителя, возвращаются так: там — `git subtree push` в отдельную
+ветку этого репозитория, здесь — `scripts/core-merge.sh <url> <ветка>` и PR в `main`.
+PR с изменениями ядра сливайте merge-коммитом (не squash), иначе ветка `core` разойдётся
+с копиями у потребителей.

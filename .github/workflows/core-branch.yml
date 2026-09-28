@@ -1,0 +1,32 @@
+name: Publish core branch
+
+# Ветка `core` — история packages/core с ядром в корне (git subtree split).
+# Из неё ядро подключают другие репозитории: git subtree add/pull ... core.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/core/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: core-branch
+  cancel-in-progress: false
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Split packages/core
+        run: |
+          git subtree split --prefix=packages/core -b core
+          # split детерминирован: при линейном развитии main это fast-forward
+          git push origin core
