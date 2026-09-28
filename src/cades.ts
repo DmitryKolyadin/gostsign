@@ -4,6 +4,8 @@
  * пользователя). Здесь нет ни одной строчки собственной реализации ГОСТ.
  */
 
+import { assetUrl, getConfig } from './config';
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 declare global {
@@ -39,16 +41,31 @@ export function hashAlgByPublicKeyOid(oid: string): number {
       throw new CadesError(
         `Неизвестный алгоритм ключа сертификата (OID ${oid}). ` +
           'Поддерживаются только ГОСТ Р 34.10-2001 и 34.10-2012.',
+        undefined,
+        'unsupported_key',
       );
   }
 }
 
+/** Машиночитаемая причина ошибки — чтобы приложение не разбирало текст. */
+export type CadesErrorCode =
+  | 'plugin_unavailable'
+  | 'cancelled'
+  | 'no_private_key'
+  | 'cert_expired'
+  | 'tsa_unavailable'
+  | 'chain'
+  | 'unsupported_key'
+  | 'unknown';
+
 export class CadesError extends Error {
   hint?: string;
-  constructor(message: string, hint?: string) {
+  code: CadesErrorCode;
+  constructor(message: string, hint?: string, code: CadesErrorCode = 'unknown') {
     super(message);
     this.name = 'CadesError';
     this.hint = hint;
+    this.code = code;
   }
 }
 
@@ -74,7 +91,11 @@ export async function loadPlugin(): Promise<void> {
 /** API плагина. Вызывать только после await loadPlugin(). */
 export function getCades(): any {
   if (!cadesApi) {
-    throw new CadesError('КриптоПро ЭЦП Browser plug-in ещё не инициализирован');
+    throw new CadesError(
+      'КриптоПро ЭЦП Browser plug-in ещё не инициализирован',
+      undefined,
+      'plugin_unavailable',
+    );
   }
   return cadesApi;
 }
@@ -89,7 +110,8 @@ function loadPluginBoxed(): Promise<{ api: any }> {
         reject(
           new CadesError(
             'Не удалось загрузить cadesplugin_api.js',
-            'Проверьте, что файл /vendor/cadesplugin_api.js доступен.',
+            'Проверьте, что файл vendor/cadesplugin_api.js из ассетов ядра доступен (configure({ assetsBaseUrl })).',
+            'plugin_unavailable',
           ),
         );
         return;
@@ -100,6 +122,7 @@ function loadPluginBoxed(): Promise<{ api: any }> {
             'КриптоПро ЭЦП Browser plug-in не отвечает',
             'Плагин не установлен, либо расширение браузера отключено. ' +
               `Установите актуальную версию (с поддержкой Manifest V3): ${PLUGIN_URL}`,
+            'plugin_unavailable',
           ),
         );
       }, 20000);
@@ -123,6 +146,7 @@ function loadPluginBoxed(): Promise<{ api: any }> {
                   '(отдельная программа, не только расширение); 3) включено ли расширение в браузере и ' +
                   'разрешён ли ему доступ к этому сайту; 4) перезапущен ли браузер после установки. ' +
                   `Дистрибутив: ${PLUGIN_URL}. Техническая деталь: ${describe(probeError)}`,
+                'plugin_unavailable',
               ),
             );
             return;
@@ -136,6 +160,7 @@ function loadPluginBoxed(): Promise<{ api: any }> {
               'КриптоПро ЭЦП Browser plug-in недоступен: ' + describe(e),
               'Убедитесь, что плагин установлен, расширение браузера включено и ' +
                 `используется актуальная версия с поддержкой Manifest V3: ${PLUGIN_URL}`,
+              'plugin_unavailable',
             ),
           );
         });
@@ -146,13 +171,14 @@ function loadPluginBoxed(): Promise<{ api: any }> {
       return;
     }
     const script = document.createElement('script');
-    script.src = `${import.meta.env.BASE_URL}vendor/cadesplugin_api.js`;
+    script.src = getConfig().pluginApiUrl ?? assetUrl('vendor/cadesplugin_api.js');
     script.onload = boot;
     script.onerror = () =>
       reject(
         new CadesError(
           'Не удалось загрузить cadesplugin_api.js',
-          'Файл должен лежать в public/vendor/.',
+          'Файл должен лежать в статике приложения: vendor/cadesplugin_api.js (см. configure).',
+          'plugin_unavailable',
         ),
       );
     document.head.appendChild(script);
@@ -246,30 +272,42 @@ export function humanizeCadesError(e: unknown): CadesError {
       'КриптоПро ЭЦП Browser plug-in не загружен в браузере',
       'Установите КриптоПро CSP и КриптоПро ЭЦП Browser plug-in, включите расширение браузера ' +
         `и перезапустите браузер: ${PLUGIN_URL}. Техническая деталь: ${raw}`,
+      'plugin_unavailable',
     );
   }
   if (low.includes('0x8010006e') || low.includes('отменена пользователем') || low.includes('cancelled by the user')) {
-    return new CadesError('Ввод PIN-кода отменён пользователем', 'Подписание прервано. Повторите операцию.');
+    return new CadesError(
+      'Ввод PIN-кода отменён пользователем',
+      'Подписание прервано. Повторите операцию.',
+      'cancelled',
+    );
   }
   if (low.includes('0x8009200') || low.includes('0x80090010') || low.includes('keyset')) {
     return new CadesError(
       'Нет доступа к закрытому ключу сертификата',
       'Проверьте, что носитель (токен/флешка) подключён и контейнер доступен.',
+      'no_private_key',
     );
   }
   if (low.includes('0x800b0101') || low.includes('срок действия') || low.includes('expired')) {
-    return new CadesError('Срок действия сертификата истёк', 'Выберите действующий сертификат.');
+    return new CadesError(
+      'Срок действия сертификата истёк',
+      'Выберите действующий сертификат.',
+      'cert_expired',
+    );
   }
   if (low.includes('tsp') || low.includes('tsa') || low.includes('служба штампов') || low.includes('0x8007007b')) {
     return new CadesError(
       'Служба штампов времени (TSA) недоступна',
       'Проверьте адрес TSA и сетевой доступ, либо отключите CAdES-T.',
+      'tsa_unavailable',
     );
   }
   if (low.includes('0x800b010a') || low.includes('цепочк') || low.includes('chain')) {
     return new CadesError(
       'Не удалось построить цепочку доверия сертификата',
       'Установите корневой сертификат УЦ в доверенные.',
+      'chain',
     );
   }
   return new CadesError('Ошибка КриптоПро: ' + raw);
@@ -290,8 +328,57 @@ export interface CertificateInfo {
   surname: string;
   givenName: string;
   org: string;
+  /** ИНН юрлица, если есть, иначе ИНН физлица (как раньше). */
   inn: string;
   snils: string;
+  /** ИНН физлица (12 цифр), OID 1.2.643.3.131.1.1. */
+  personInn: string;
+  /** ИНН юрлица (10 цифр), OID 1.2.643.100.4 или старый формат «00» + 10 цифр в поле ИНН. */
+  orgInn: string;
+  /** ОГРН (юрлицо) или ОГРНИП (ИП). */
+  ogrn: string;
+  /** Должность (T). */
+  title: string;
+  email: string;
+}
+
+const DN_ALIASES: Record<string, string[]> = {
+  INN: ['INN', 'ИНН', 'OID.1.2.643.3.131.1.1', '1.2.643.3.131.1.1'],
+  INNLE: ['INNLE', 'ИНН ЮЛ', 'ИННЮЛ', 'OID.1.2.643.100.4', '1.2.643.100.4'],
+  SNILS: ['SNILS', 'СНИЛС', 'OID.1.2.643.100.3', '1.2.643.100.3'],
+  OGRN: ['OGRN', 'ОГРН', 'OID.1.2.643.100.1', '1.2.643.100.1'],
+  OGRNIP: ['OGRNIP', 'ОГРНИП', 'OID.1.2.643.100.5', '1.2.643.100.5'],
+};
+
+function pick(dn: Record<string, string>, key: keyof typeof DN_ALIASES): string {
+  for (const k of DN_ALIASES[key]) if (dn[k]) return dn[k];
+  return '';
+}
+
+/**
+ * Реквизиты владельца из разобранного SubjectName. Имена атрибутов у разных
+ * версий CSP и локалей различаются (INN / ИНН / OID.1.2.643...), поэтому
+ * смотрим все известные написания.
+ */
+export function subjectIds(dn: Record<string, string>) {
+  const digits = (v: string) => v.replace(/\D/g, '');
+  const inn = digits(pick(dn, 'INN'));
+  let orgInn = digits(pick(dn, 'INNLE'));
+  let personInn = '';
+  if (inn.length === 12 && inn.startsWith('00')) {
+    // до 2021 года ИНН юрлица писали в поле ИНН с двумя ведущими нулями
+    if (!orgInn) orgInn = inn.slice(2);
+  } else if (inn.length === 12) {
+    personInn = inn;
+  } else if (inn.length === 10 && !orgInn) {
+    orgInn = inn;
+  }
+  return {
+    personInn,
+    orgInn,
+    snils: digits(pick(dn, 'SNILS')),
+    ogrn: digits(pick(dn, 'OGRN') || pick(dn, 'OGRNIP')),
+  };
 }
 
 /** Разбирает строку SubjectName вида `CN=Иванов, O="ООО ..."` */
@@ -357,6 +444,7 @@ export async function listCertificates(onlyValid = true): Promise<{
       const cert = await collection.Item(i);
       const subjectName: string = await cert.SubjectName;
       const dn = parseDN(subjectName);
+      const ids = subjectIds(dn);
       let publicKeyOid = '';
       try {
         const pk = await cert.PublicKey();
@@ -386,8 +474,13 @@ export async function listCertificates(onlyValid = true): Promise<{
         surname: dn.SN ?? dn.SURNAME ?? '',
         givenName: dn.G ?? dn.GN ?? '',
         org: dn.O ?? '',
-        inn: dn.INNLE ?? dn.INN ?? '',
-        snils: dn.SNILS ?? '',
+        inn: ids.orgInn || ids.personInn,
+        snils: ids.snils,
+        personInn: ids.personInn,
+        orgInn: ids.orgInn,
+        ogrn: ids.ogrn,
+        title: dn.T ?? '',
+        email: dn.E ?? '',
       });
       handles.push(cert);
     }
