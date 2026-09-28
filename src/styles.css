@@ -444,9 +444,16 @@ body {
 
 .stampbox--active {
   cursor: move;
-  box-shadow: inset 2px 0 0 var(--ink);
+  border: none;
+  background: transparent;
+  overflow: visible;
   outline: 1px dashed rgba(154, 51, 36, 0.6);
   outline-offset: 2px;
+}
+
+.stampbox--active > svg {
+  display: block;
+  user-select: none;
 }
 
 .stampbox--bad {
@@ -463,22 +470,6 @@ body {
   color: var(--ink-soft);
 }
 
-.stampbox__inner {
-  padding: 4px 6px;
-  font-size: 7px;
-  line-height: 1.35;
-  user-select: none;
-}
-
-.stampbox__title {
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.stampbox__line {
-  color: #222;
-}
-
 .stampbox__handle {
   position: absolute;
   right: -4px;
@@ -487,6 +478,105 @@ body {
   height: 10px;
   background: var(--seal);
   cursor: nwse-resize;
+}
+
+/* --- конфигуратор штампа --- */
+.stampcfg__head {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.stampcfg__presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.preset {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.preset--on {
+  border-color: var(--seal);
+  box-shadow: 0 0 0 1px var(--seal);
+}
+
+.preset__svg {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 190 / 66;
+  background: #fff;
+}
+
+.stampcfg__group {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--rule);
+}
+
+.stampcfg__group legend {
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.stampcfg__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.stampcfg__field {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.stampcfg__fields {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stampcfg__fields li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stampcfg__order {
+  display: flex;
+  gap: 2px;
+}
+
+.btn--icon {
+  padding: 0 8px;
+  min-width: 0;
+}
+
+.toggle--inline {
+  margin: 0;
 }
 
 /* --- диагностика --- */
