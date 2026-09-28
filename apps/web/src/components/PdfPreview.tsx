@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// legacy-сборка pdf.js — с полифилами (Map.getOrInsertComputed и др.): основная
+// сборка 6.x падает в браузерах, где их ещё нет (Яндекс.Браузер, Chromium-ГОСТ).
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import type { StampPlacement } from '@gostsign/core';
 import { StampSvg } from './StampSvg';
 import type { StampLine, StampStyle } from '@gostsign/core';
